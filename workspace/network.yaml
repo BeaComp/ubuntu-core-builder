@@ -1,0 +1,10 @@
+network:
+  version: 2
+  wifis:
+    wlan0:
+      access-points:
+        "SEU_WIFI": 
+          password: "SUA_SENHA"
+          # hidden: true # Descomente esta linha se a rede Wi-Fi for oculta
+      dhcp4: true
+      wakeonlan: true

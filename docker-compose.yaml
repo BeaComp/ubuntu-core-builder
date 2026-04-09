@@ -1,0 +1,21 @@
+services:
+  core-builder:
+    build: .
+    container_name: ubuntu-core-builder
+    privileged: true
+    cgroup: host
+    volumes:
+      - ./workspace:/workspace
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+      - /sys/kernel/security:/sys/kernel/security:rw
+    env_file:
+      - ./workspace/.env  
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+      - /var/lib/snapd
+    security_opt:
+      - apparmor=unconfined
+      - seccomp=unconfined
+    restart: unless-stopped
