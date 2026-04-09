@@ -1,0 +1,16 @@
+{
+  "type": "system-user",
+  "format": "2",
+  "authority-id": "COLE_O_SEU_DEVELOPER_ID_AQUI",
+  "series": ["16"],
+  "brand-id": "COLE_O_SEU_DEVELOPER_ID_AQUI",
+  "email": "COLE_O_SEU_EMAIL_AQUI",
+  "models": ["ubuntu-core-24-pi-arm64"],
+  "name": "COLE_O_SEU_NOME_AQUI",
+  "username": "COLE_O_SEU_USERNAME_AQUI",
+  "since": "2026-02-06T16:50:37+00:00",
+  "until": "2036-05-16T18:06:04+00:00",
+  "ssh-keys": [
+    "COLE_O_SEU_CHAVE_SSH_AQUI"
+  ]
+}
