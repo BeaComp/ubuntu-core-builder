@@ -16,6 +16,47 @@ docker compose up -d
 
 ---
 
+## 🔑 Pré-requisito Extra: Chave SSH para Acesso ao Dispositivo
+
+```bash
+
+Atenção: O Ubuntu Core não possui acesso por senha. A única forma de se conectar ao dispositivo via SSH após a instalação é através de uma chave SSH vinculada à sua conta Ubuntu One. Se você pular este passo, não conseguirá acessar o dispositivo depois.
+```
+
+
+Por que isso é necessário?
+O Ubuntu Core é um sistema operacional imutável e voltado para segurança. Por isso, ele desabilita o login por senha no SSH por padrão. Durante a inicialização, o sistema busca automaticamente as chaves SSH públicas registradas na sua conta Ubuntu One e as instala no dispositivo, permitindo que apenas você se conecte.
+
+Como configurar:
+
+1. Gere um par de chaves SSH na sua máquina (caso ainda não tenha um):
+
+```bash
+ssh-keygen -t ed25519 -C "seu-email@exemplo.com"
+```
+
+
+Isso cria dois arquivos: ~/.ssh/id_ed25519 (chave privada, nunca compartilhe) e ~/.ssh/id_ed25519.pub (chave pública).
+
+3. Copie o conteúdo da sua chave pública:
+   
+```bash
+cat ~/.ssh/id_ed25519.p
+```
+
+5. Adicione a chave na sua conta Ubuntu One:
+
+Acesse https://login.ubuntu.com
+Vá em "SSH Keys" no menu lateral
+Clique em "Add SSH Key" e cole o conteúdo copiado no passo anterior.
+
+4. Conectando ao dispositivo após a instalação:
+Assim que o dispositivo estiver com o Ubuntu Core instalado e na mesma rede, conecte-se com:
+
+```bash
+ssh <seu-usuario-ubuntu-one>@<ip-do-dispositivo>
+```
+
 ## 🛠️ Passo a Passo (Setup Inicial)
 
 Todas as operações abaixo devem ser feitas **uma única vez** por máquina/ambiente.
