@@ -1,0 +1,104 @@
+# ════════════════════════════════════════════════════════════════
+#  CI/CD — Build da imagem Ubuntu Core e publicação em Releases
+#
+#  Gatilhos:
+#    - push de uma tag "v*"  → build + GitHub Release com a imagem
+#    - execução manual       → build + artefacto de workflow (7 dias)
+#
+#  Secrets necessários (ver "make ci-secrets" ou README):
+#    SNAPCRAFT_STORE_CREDENTIALS  token do "snapcraft export-login"
+#    SNAP_SIGNING_KEY             chave GPG privada (armored) que
+#                                 assina o model/system-user
+#    KEY_PASSPHRASE               (opcional) passphrase da chave
+# ════════════════════════════════════════════════════════════════
+name: build-image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout (inclui pi-gadget)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Instalar ferramentas
+        run: |
+          sudo snap install snapcraft --classic
+          sudo snap install ubuntu-image --classic
+          sudo snap install lxd
+          sudo lxd init --auto
+          # O Docker pré-instalado no runner põe a política FORWARD em DROP,
+          # o que corta a rede aos containers LXD usados pelo snapcraft
+          sudo iptables -I DOCKER-USER -i lxdbr0 -j ACCEPT || true
+          sudo iptables -I DOCKER-USER -o lxdbr0 -j ACCEPT || true
+          sudo curl -fsSL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+            -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Configurar autenticação (Store + chave de assinatura)
+        env:
+          STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+          SIGNING_KEY: ${{ secrets.SNAP_SIGNING_KEY }}
+        run: |
+          test -n "$STORE_CREDENTIALS" || { echo "::error::Secret SNAPCRAFT_STORE_CREDENTIALS em falta"; exit 1; }
+          test -n "$SIGNING_KEY"       || { echo "::error::Secret SNAP_SIGNING_KEY em falta"; exit 1; }
+          install -d -m 700 workspace/.credentials
+          printf '%s' "$STORE_CREDENTIALS" > workspace/.credentials/snapcraft-store.txt
+          chmod 600 workspace/.credentials/snapcraft-store.txt
+          # O pipeline corre como root → keyring do snap em /root/.snap/gnupg
+          sudo install -d -m 700 /root/.snap/gnupg
+          printf '%s' "$SIGNING_KEY" | sudo env GNUPGHOME=/root/.snap/gnupg gpg --batch --import
+
+      - name: Preparar .env
+        env:
+          KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
+        run: |
+          cp workspace/config/.env.example workspace/.env
+          # Assets de um Release têm limite de 2 GB → compressão obrigatória
+          sed -i 's/^COMPRESS_IMAGE=.*/COMPRESS_IMAGE=true/' workspace/.env
+          sed -i "s|^KEY_PASSPHRASE=.*|KEY_PASSPHRASE=${KEY_PASSPHRASE}|" workspace/.env
+
+      - name: Build da imagem
+        run: |
+          sudo -E env "PATH=$PATH" WORKSPACE="$GITHUB_WORKSPACE/workspace" \
+            ./workspace/pipeline.sh build
+          OUT=$(readlink -f workspace/output/latest)
+          sudo chmod -R a+r "$OUT"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Publicar GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '```'
+            cat "$OUT/build-info.txt"
+            echo '```'
+            echo ""
+            echo "Gravar no cartão SD:"
+            echo '```bash'
+            echo "xz -dc pi.img.xz | sudo dd of=/dev/sdX bs=32M status=progress"
+            echo '```'
+          } > /tmp/release-notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Ubuntu Core $GITHUB_REF_NAME" \
+            --notes-file /tmp/release-notes.md \
+            "$OUT"/pi.img.xz "$OUT"/SHA256SUMS "$OUT"/build-info.txt "$OUT"/seed.manifest
+
+      - name: Guardar artefacto (execução manual)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-core-image
+          path: ${{ env.OUT }}
+          retention-days: 7

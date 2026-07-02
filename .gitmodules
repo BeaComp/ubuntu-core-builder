@@ -1,0 +1,4 @@
+[submodule "workspace/pi-gadget"]
+	path = workspace/pi-gadget
+	url = https://github.com/BeaComp/pi-gadget.git
+	branch = 24

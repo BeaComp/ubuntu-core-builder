@@ -1,0 +1,49 @@
+{
+    "type": "model",
+    "series": "16",
+    "model": "@GERADO_PELO_PIPELINE@",
+    "architecture": "@GERADO_PELO_PIPELINE@",
+    "authority-id": "@GERADO_PELO_PIPELINE@",
+    "brand-id": "@GERADO_PELO_PIPELINE@",
+    "timestamp": "@GERADO_PELO_PIPELINE@",
+    "base": "@GERADO_PELO_PIPELINE@",
+    "grade": "@GERADO_PELO_PIPELINE@",
+    "snaps": [
+        {
+            "name": "pi",
+            "type": "gadget",
+            "default-channel": "24/stable"
+        },
+        {
+            "name": "pi-kernel",
+            "type": "kernel",
+            "default-channel": "24/stable",
+            "id": "jeIuP6tfFrvAdic8DMWqHmoaoukAPNbJ"
+        },
+        {
+            "name": "core24",
+            "type": "base",
+            "default-channel": "latest/stable",
+            "id": "dwTAh7MZZ01zyriOZErqd1JynQLiOGvM"
+        },
+        {
+            "name": "snapd",
+            "type": "snapd",
+            "default-channel": "latest/stable",
+            "id": "PMrrV4ml8uWuEUDBT8dSGnKUYbevVhc4"
+        },
+        {
+            "name": "console-conf",
+            "type": "app",
+            "default-channel": "24/stable",
+            "id": "ASctKBEHzVt3f1pbZLoekCvcigRjtuqw",
+            "presence": "optional"
+        },
+        {
+            "name": "meshagent-ubuntu-core",
+            "type": "app",
+            "default-channel": "latest/edge",
+            "id": "XXXXX"
+        }
+    ]
+}

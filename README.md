@@ -1,160 +1,206 @@
+# Ubuntu Core Image Pipeline 🏗️
 
-# 🔐 Authentication and Key Configuration Guide (Ubuntu Core)
+Pipeline automatizado para criação de imagens **Ubuntu Core** personalizadas
+(Raspberry Pi 5), no âmbito da dissertação *Autocomissionamento e gestão
+remota segura para IoT*.
 
-To generate custom Ubuntu Core images, it is strictly necessary that the image be signed by a cryptographic key validated by Canonical (Snap Store).
+Todo o processo — autenticação, gestão de chaves, geração e assinatura das
+assertions (`model` e `system-user`), build do gadget e geração da imagem —
+é orquestrado por um único script com subcomandos, dentro de um container
+Docker reprodutível.
 
-This guide explains how to perform the initial security configuration **inside the Docker container**, ensuring that your passwords are not exposed in the source code.
+## Arquitetura
 
-## ⚠️ Prerequisites
-1. The Docker container `ubuntu-core-builder` must be running (use the initialization script):
-```bash
-docker compose up -d
+```
+ubuntu-core-builder/
+├── Makefile                  # comandos de conveniência (host)
+├── Dockerfile                # ambiente de build (systemd + snapd)
+├── docker-compose.yaml
+└── workspace/                # montado em /workspace no container
+    ├── pipeline.sh           # orquestrador: setup | build | doctor | clean | all
+    ├── lib/common.sh         # logging, .env, gpg, credenciais
+    ├── config/
+    │   ├── .env.example      # → copiar para workspace/.env
+    │   ├── model.template.json
+    │   ├── system-user.template.json
+    │   └── ssh-authorized-keys
+    ├── network.yaml          # (opcional) netplan injetado no gadget
+    ├── pi-gadget/            # fonte do gadget snap
+    ├── build/                # artefactos intermédios (gerado)
+    ├── output/<run-id>/      # imagens finais + SHA256SUMS + build-info.txt
+    ├── logs/                 # log de cada execução (gerado)
+    └── .credentials/         # token da Snap Store (gerado, chmod 600)
 ```
 
-2. You need an active account on **Ubuntu One** (https://login.ubuntu.com).
-3. You must have accepted the Developer Terms in the **Snapcraft** dashboard (https://dashboard.snapcraft.io).
+## Fluxo do build
 
----
-
-## 🔑 Extra Prerequisite: SSH Key for Device Access
-
-```bash
-
-Attention: Ubuntu Core does not have password access. The only way to connect to the device via SSH after installation is through an SSH key linked to your Ubuntu One account. If you skip this step, you will not be able to access the device later.
+```
+setup (1 vez, interativo)          build (repetível, não-interativo)
+┌────────────────────────┐         ┌─────────────────────────────────┐
+│ 1. login Ubuntu One    │         │ 1. render assertions            │
+│    (suporta 2FA)       │         │    developer-id ← whoami        │
+│ 2. criar chave GPG     │  ────▶  │ 2. snap sign (model +           │
+│    (RSA 4096, batch)   │         │    system-user --chain)         │
+│ 3. registar chave na   │         │ 3. snapcraft pack (gadget,      │
+│    Canonical           │         │    com cache + netplan)         │
+└────────────────────────┘         │ 4. ubuntu-image → output/       │
+                                   └─────────────────────────────────┘
 ```
 
-
-Why is this necessary?
-Ubuntu Core is an immutable and security-focused operating system. Therefore, it disables password login in SSH by default. During initialization, the system automatically searches for public SSH keys registered in your Ubuntu One account and installs them on the device, allowing only you to connect.
-
-How to configure:
-
-1. Generate an SSH key pair on your machine (if you don't have one yet):
-
-```bash
-ssh-keygen -t ed25519 -C "your-email@example.com"
-```
-
-
-This creates two files: ~/.ssh/id_ed25519 (private key, never share) and ~/.ssh/id_ed25519.pub (public key).
-
-3. Copy the content of your public key:
-   
-```bash
-cat ~/.ssh/id_ed25519.pub
-```
-
-5. Add the key to your Ubuntu One account:
-
-Go to https://login.ubuntu.com
-Go to "SSH Keys" in the side menu
-Click on "Add SSH Key" and paste the content copied in the previous step.
-
-4. Connecting to the device after installation:
-Once the device has Ubuntu Core installed and is on the same network, connect with:
+## Início rápido
 
 ```bash
-ssh <your-ubuntu-one-username>@<device-ip>
+# 0. Pré-requisitos: conta Ubuntu One + termos aceites em
+#    https://dashboard.snapcraft.io
+
+# 1. Configuração
+cp workspace/config/.env.example workspace/.env
+#    → edita workspace/.env (KEY_NAME, passphrase, dados do system-user)
+#    → confirma a tua chave pública em workspace/config/ssh-authorized-keys
+#    → (opcional) edita workspace/network.yaml com o teu Wi-Fi
+
+# 2. Ambiente
+make up          # arranca o container e espera pelo snapd
+
+# 3. Setup inicial — UMA vez (pede email/password/2FA do Ubuntu One)
+make setup
+
+# 4. Build da imagem — sempre que precisares, sem interação
+make image
 ```
 
-## 🛠️ Step by Step (Initial Setup)
+A imagem fica em `workspace/output/<data>_<modelo>/` (atalho
+`workspace/output/latest/`), acompanhada de `SHA256SUMS` e de um
+`build-info.txt` com a proveniência completa do build (developer-id, chave,
+revisão git do gadget, versões das ferramentas).
 
-All operations below should be done **only once** per machine/environment.
-
-### Step 1: Install the dependencies
-Start the script that will download the dependencies in the container to generate the image:
-```bash
-docker exec -it ubuntu-core-builder /workspace/check-dependency.sh
-```
-
-### Step 2: Enter the Container
-Open your terminal and access the interactive bash of the container with root privileges:
-```bash
-docker exec -it ubuntu-core-builder bash
-```
-
-### Step 3: Configure the Snap Path
-Inside the container, ensure that the terminal can find the Snapcraft commands:
-```bash
-export PATH=$PATH:/snap/bin
-```
-
-### Step 4: Login and Generate the Secure Token
-To avoid putting passwords in scripts, we will generate a long-lasting access token and save it in the `workspace` folder. To do this, log in to your Ubuntu One account:
-
-* **Note:** The terminal will ask for your email, Ubuntu One password, and the 2-Factor Authentication code (if you have activated it).
-```bash
-snapcraft login
-```
-
-After that, export your secure token:
-* **Note:** It is likely that the terminal will ask again for your Ubuntu One email and password.
-```bash
-snapcraft export-login /workspace/credentials.txt
-```
-
-### Step 5: Load the Token in the Current Session
-For the next step to work, tell the terminal to use the token you just generated in Step 3:
-```bash
-export SNAPCRAFT_STORE_CREDENTIALS=$(cat /workspace/credentials.txt)
-```
-
-* **Note:** The generated file (`credentials.txt`) is your passport and should never be "committed" to Git.
-
-### Step 6: Create the Local Signing Key
-Now, we will create the cryptographic key that will sign your files (`model.json` and `system-user`). Replace `YOUR_KEY_NAME` with a unique name for your project (e.g., `iot-project-key`).
-```bash
-snapcraft create-key YOUR_KEY_NAME
-```
-* **Note:** It will ask you to create a **Passphrase** (key password). Write down this password, you will need it in the `.env` file.
-
-### Step 7: Register the Key with Canonical (Cloud)
-This is the most critical step. Ubuntu Core requires a "chain of trust" (`--chain`). For this, Canonical needs to know that this key belongs to your account.
-```bash
-snapcraft register-key YOUR_KEY_NAME
-```
-* **Success:** If everything goes well, the terminal will respond with *Key successfully registered*.
-
-### Step 8: Discover Your Developer ID
-For you to have permission to sign the image, the `model.json` file needs to contain your Canonical developer ID. To find out what yours is, type:
-```bash
-snapcraft whoami
-```
-* **Note:** The command will print something like `your-email@example.com (developer-id: YbZ78x...)`. Copy the alphanumeric code inside the parentheses.
-
-### Step 9: Exit the Container
-The manual configuration is complete. Type `exit` to return to your real machine's terminal.
-```bash
-exit
-```
-
----
-
-## 📝 Project Integration
-
-Now that the secure environment has been created, you need to feed the project with this information.
-
-**1. Update the `.env` file:**
-In your `.env` file (in the `workspace` folder), put the name of the key you registered and the passphrase you created in Step 6:
-```text
-KEY_NAME="YOUR_KEY_NAME"
-KEY_PASSPHRASE="your_secret_password"
-```
-
-**2. Update the `model.json` file:**
-Open the `model.json` file and replace the `authority-id` and `brand-id` fields with the code you copied in Step 8:
-```json
-{
-  "type": "model",
-  "series": "16",
-  "authority-id": "PASTE_YOUR_DEVELOPER_ID_HERE",
-  "brand-id": "PASTE_YOUR_DEVELOPER_ID_HERE",
-}
-...
-```
-
-**Done!** The environment is authenticated and the automatic `build-image.sh` script can now be executed.
+Gravar no cartão SD:
 
 ```bash
-docker exec -it ubuntu-core-builder /workspace/build-image.sh
+xz -dc workspace/output/latest/*.img.xz | sudo dd of=/dev/sdX bs=32M status=progress
+# ou, sem compressão:
+sudo dd if=workspace/output/latest/pi.img of=/dev/sdX bs=32M status=progress
 ```
+
+## Comandos
+
+| Comando | Descrição |
+|---|---|
+| `make up` / `make down` | Arranca / pára o container |
+| `make setup` | Login na Store + criação e registo da chave (interativo, 1 vez) |
+| `make image` | Build completo, não-interativo |
+| `make gadget` | Build forçando a reconstrução do gadget |
+| `make doctor` | Diagnóstico: dependências, credenciais, chave, templates |
+| `make clean` | Remove artefactos intermédios (preserva credenciais/imagens) |
+| `make shell` | Bash dentro do container |
+
+Dentro do container os mesmos subcomandos existem em
+`/workspace/pipeline.sh <setup|build|doctor|clean|all>`.
+
+## Configuração (`workspace/.env`)
+
+| Variável | Descrição | Omissão |
+|---|---|---|
+| `KEY_NAME` | Nome da chave de assinatura | *(obrigatório)* |
+| `KEY_PASSPHRASE` | Passphrase da chave; vazio = sem passphrase (CI) | vazio |
+| `MODEL_NAME` | Nome do modelo (assertion `model`) | `rpi5-gateway` |
+| `ARCHITECTURE` / `BASE` / `GRADE` | Parâmetros do modelo | `arm64` / `core24` / `dangerous` |
+| `SYSTEM_USER_EMAIL` / `USERNAME` / `FULLNAME` | Utilizador criado no 1º arranque | *(obrigatório)* |
+| `SYSTEM_USER_VALID_YEARS` | Validade da asserção system-user | `10` |
+| `COMPRESS_IMAGE` | `true` = comprime a imagem com xz | `false` |
+
+Os snaps incluídos na imagem definem-se em
+`workspace/config/model.template.json` (lista `snaps`). Os campos de
+identidade (`authority-id`, `brand-id`, `timestamp`, …) são preenchidos
+automaticamente pelo pipeline — **nunca é preciso editá-los à mão**.
+
+## CI/CD (GitHub Actions)
+
+O workflow [.github/workflows/build-image.yml](.github/workflows/build-image.yml)
+constrói a imagem no GitHub e publica-a:
+
+- **`git push` de uma tag `v*`** → build + **GitHub Release** com
+  `pi.img.xz`, `SHA256SUMS`, `build-info.txt` e `seed.manifest`
+- **Execução manual** (Actions → build-image → Run workflow) → build +
+  artefacto de workflow (retenção de 7 dias), sem criar release
+
+O CI corre o mesmo `pipeline.sh build` usado localmente, diretamente no
+runner (sem Docker — o runner já tem snapd), com `COMPRESS_IMAGE=true`
+forçado porque os assets de um Release têm limite de 2 GB por ficheiro.
+
+### Configuração (uma vez)
+
+O CI precisa de dois secrets — os mesmos materiais que o `make setup`
+criou localmente. Com o [GitHub CLI](https://cli.github.com) autenticado:
+
+```bash
+make ci-secrets
+```
+
+Ou manualmente (Settings → Secrets and variables → Actions):
+
+| Secret | Conteúdo |
+|---|---|
+| `SNAPCRAFT_STORE_CREDENTIALS` | `docker exec ubuntu-core-builder cat /workspace/.credentials/snapcraft-store.txt` |
+| `SNAP_SIGNING_KEY` | `docker exec ubuntu-core-builder gpg --homedir /root/.snap/gnupg --export-secret-keys --armor <KEY_NAME>` |
+| `KEY_PASSPHRASE` | (só se a chave tiver passphrase) |
+
+### Publicar uma versão
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+# → https://github.com/BeaComp/ubuntu-core-builder/releases/tag/v0.1.0
+```
+
+Notas:
+
+- O `pi-gadget` entra no CI como **submodule**: o build usa o commit
+  apontado pelo repositório principal. Depois de alterares o gadget,
+  faz commit+push no `pi-gadget` e depois `git add workspace/pi-gadget`
+  + commit no repositório principal.
+- O Wi-Fi **não** é injetado no CI (o `network.yaml` versionado está
+  vazio de propósito — nunca commits senhas de Wi-Fi). Imagens do CI
+  arrancam com Ethernet/console-conf; para imagens com Wi-Fi usa o
+  build local.
+- O token da Store expira (≈1 ano por omissão). Quando o CI falhar com
+  credenciais inválidas: `make setup` local e `make ci-secrets` de novo.
+
+## Decisões de segurança
+
+- **Sem passwords em ficheiros.** O login no Ubuntu One é interativo e feito
+  uma única vez (`make setup`), com suporte a 2FA. O que fica guardado é um
+  token exportado (`snapcraft export-login`), em `.credentials/` com
+  permissões `600`, validado a cada build e ignorado pelo git.
+- **Assinatura não-interativa sem expor a chave.** A passphrase é injetada
+  no `gpg-agent` (`gpg-preset-passphrase`) apenas durante a sessão de build;
+  a chave privada nunca sai de `~/.snap/gnupg`.
+- **Developer-id sempre correto.** `authority-id`/`brand-id` são obtidos de
+  `snapcraft whoami` no momento do build, eliminando a classe de erros de
+  assinatura por IDs desatualizados nos JSON.
+- **Rastreabilidade.** Cada imagem é acompanhada de `SHA256SUMS` e
+  `build-info.txt`; cada execução gera um log em `workspace/logs/`.
+- **Reversibilidade.** A injeção do netplan no `gadget.yaml` é desfeita
+  automaticamente após o build (mesmo em caso de erro), mantendo o
+  repositório do gadget limpo.
+
+## Resolução de problemas
+
+| Sintoma | Causa provável / solução |
+|---|---|
+| `Sem credenciais válidas` | Token expirou → `make setup` de novo |
+| `cannot sign assertion ... key not found` | `KEY_NAME` no `.env` difere da chave criada → `snap keys` para listar |
+| `snap sign` pede passphrase | `KEY_PASSPHRASE` errada no `.env`, ou `gpg-agent` reiniciado → volta a correr o build |
+| register-key falha | Termos do developer não aceites em dashboard.snapcraft.io |
+| Wi-Fi não configurado na imagem | `network.yaml` ainda com valores de exemplo (o pipeline avisa e ignora) |
+| Snapd não arranca no container | `make rebuild`; confirmar que o Docker corre com cgroups v2 |
+
+## Nota sobre a versão anterior
+
+Os scripts `workspace/build-image.sh` e `workspace/check-dependency.sh`
+correspondem à primeira iteração (V1) e estão obsoletos — mantidos apenas
+como referência histórica para a dissertação. As principais diferenças
+desta versão: login sem password em texto plano (e compatível com 2FA),
+criação/registo de chave totalmente automatizados, templates de assertions
+renderizados com o developer-id real, cache do gadget, outputs versionados
+com checksums e proveniência, e diagnóstico (`doctor`).

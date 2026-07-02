@@ -57,3 +57,12 @@ Thumbs.db
 **/stage/
 **/pi_*.snap
 **/*.swp
+
+# ── Pipeline v2 ──────────────────────────
+workspace/.credentials/
+workspace/build/
+workspace/output/
+workspace/logs/
+workspace/*.img
+workspace/*.img.xz
+workspace/seed.manifest

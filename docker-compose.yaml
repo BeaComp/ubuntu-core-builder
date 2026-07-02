@@ -1,3 +1,8 @@
+# O container corre systemd porque o snapd (necessário para o
+# snapcraft e o ubuntu-image) só funciona como serviço de sistema.
+# A configuração do pipeline vive em workspace/.env e é lida pelo
+# próprio pipeline.sh em runtime — não é injetada pelo compose,
+# para evitar valores obsoletos quando o .env muda.
 services:
   core-builder:
     build: .
@@ -8,8 +13,6 @@ services:
       - ./workspace:/workspace
       - /sys/fs/cgroup:/sys/fs/cgroup:rw
       - /sys/kernel/security:/sys/kernel/security:rw
-    env_file:
-      - ./workspace/.env  
     tmpfs:
       - /run
       - /run/lock

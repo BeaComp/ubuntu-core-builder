@@ -1,0 +1,18 @@
+{
+  "type": "system-user",
+  "format": "2",
+  "series": [
+    "16"
+  ],
+  "authority-id": "@GERADO_PELO_PIPELINE@",
+  "brand-id": "@GERADO_PELO_PIPELINE@",
+  "email": "@GERADO_PELO_PIPELINE@",
+  "models": [
+    "@GERADO_PELO_PIPELINE@"
+  ],
+  "name": "@GERADO_PELO_PIPELINE@",
+  "username": "@GERADO_PELO_PIPELINE@",
+  "since": "@GERADO_PELO_PIPELINE@",
+  "until": "@GERADO_PELO_PIPELINE@",
+  "ssh-keys": []
+}

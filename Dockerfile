@@ -1,8 +1,9 @@
 FROM ubuntu:24.04
 
 ENV container=docker
-ENV LC_ALL=C
+ENV LC_ALL=C.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH="/snap/bin:${PATH}"
 
 RUN apt-get update && apt-get install -y \
     systemd \
@@ -13,6 +14,10 @@ RUN apt-get update && apt-get install -y \
     git \
     curl \
     jq \
+    gpg \
+    gpg-agent \
+    pinentry-curses \
+    xz-utils \
     squashfs-tools \
     dosfstools \
     mtools \
