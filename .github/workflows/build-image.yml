@@ -58,6 +58,20 @@ jobs:
           sudo install -d -m 700 /root/.snap/gnupg
           printf '%s' "$SIGNING_KEY" | sudo env GNUPGHOME=/root/.snap/gnupg gpg --batch --import
 
+      - name: Obter binário meshagent (asset do release dedicado)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # O binário do agente MeshCentral está fora do git de propósito;
+          # vive como asset do release "meshagent-bin" no repo pi-gadget
+          DEST=workspace/pi-gadget/gadget-source/meshagent-bin/meshagent
+          gh release download meshagent-bin \
+            --repo BeaComp/pi-gadget \
+            --pattern meshagent \
+            --output "$DEST"
+          chmod +x "$DEST"
+          file "$DEST"
+
       - name: Preparar .env
         env:
           KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}

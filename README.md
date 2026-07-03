@@ -165,6 +165,11 @@ Notas:
   build local.
 - O token da Store expira (≈1 ano por omissão). Quando o CI falhar com
   credenciais inválidas: `make setup` local e `make ci-secrets` de novo.
+- O binário do agente MeshCentral (arm64) está fora do git; o CI
+  descarrega-o do release
+  [`meshagent-bin` do pi-gadget](https://github.com/BeaComp/pi-gadget/releases/tag/meshagent-bin).
+  Para atualizar o binário:
+  `gh release upload meshagent-bin <ficheiro> --clobber --repo BeaComp/pi-gadget`
 
 ## Decisões de segurança
 
