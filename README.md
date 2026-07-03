@@ -1,163 +1,163 @@
-# Ubuntu Core Image Builder — Guia 🏗️
+# Ubuntu Core Image Builder — Guide 🏗️
 
-Guia e pipeline de referência para automatizar a criação de imagens
-**Ubuntu Core** personalizadas (exemplo: Raspberry Pi), com assinatura
-criptográfica, utilizador de sistema pré-configurado e CI/CD opcional.
+Reference guide and pipeline for automating the creation of custom
+**Ubuntu Core** images (e.g. for Raspberry Pi), with cryptographic
+signing, a pre-configured system user and optional CI/CD.
 
-> ⚠️ **Antes de usar: clona e torna PRIVADO.**
-> Este repositório é um guia público e por isso todos os valores
-> sensíveis estão marcados com `XXXXX`. A tua cópia vai conter dados
-> pessoais (email, IDs de developer, chaves SSH públicas, configuração
-> de rede) e, se ativares o CI/CD, secrets da tua conta Ubuntu One —
-> **usa-a sempre como repositório privado**:
+> ⚠️ **Before using: clone this and make your copy PRIVATE.**
+> This repository is a public guide, so every sensitive value is
+> masked as `XXXXX`. Your copy will hold personal data (email,
+> developer IDs, public SSH keys, network configuration) and, if you
+> enable CI/CD, secrets tied to your Ubuntu One account — **always
+> work in a private repository**:
 >
 > ```bash
-> gh repo create o-teu-builder --private --clone
-> # copia o conteúdo deste guia para lá e trabalha no privado
+> gh repo create your-builder --private --clone
+> # copy the contents of this guide there and work in the private copy
 > ```
 
-Todo o processo — autenticação, gestão de chaves, geração e assinatura
-das assertions (`model` e `system-user`), build do gadget e geração da
-imagem — é orquestrado por um único script com subcomandos, dentro de
-um container Docker reprodutível.
+The whole process — authentication, key management, generation and
+signing of the assertions (`model` and `system-user`), gadget build and
+image generation — is orchestrated by a single script with subcommands,
+inside a reproducible Docker container.
 
-## Arquitetura
+## Architecture
 
 ```
-├── Makefile                  # comandos de conveniência (host)
-├── Dockerfile                # ambiente de build (systemd + snapd)
+├── Makefile                  # convenience commands (host)
+├── Dockerfile                # build environment (systemd + snapd)
 ├── docker-compose.yaml
-├── TUTORIAL.md               # passo-a-passo + CI/CD + segurança
-└── workspace/                # montado em /workspace no container
-    ├── pipeline.sh           # orquestrador: setup | build | doctor | clean | all
-    ├── lib/common.sh         # logging, .env, gpg, credenciais
+├── TUTORIAL.md               # step-by-step + CI/CD + security
+└── workspace/                # mounted at /workspace in the container
+    ├── pipeline.sh           # orchestrator: setup | build | doctor | clean | all
+    ├── lib/common.sh         # logging, .env, gpg, credentials
     ├── config/
-    │   ├── .env.example      # → copiar para workspace/.env e preencher
+    │   ├── .env.example      # → copy to workspace/.env and fill in
     │   ├── model.template.json
     │   ├── system-user.template.json
     │   └── ssh-authorized-keys.example
-    ├── network.yaml          # (opcional) netplan injetado no gadget
-    ├── pi-gadget/            # submodule: fonte do gadget snap
-    ├── build/                # artefactos intermédios (gerado)
-    ├── output/<run-id>/      # imagens + SHA256SUMS + build-info.txt
-    ├── logs/                 # log de cada execução (gerado)
-    └── .credentials/         # token da Snap Store (gerado, chmod 600)
+    ├── network.yaml          # (optional) netplan injected into the gadget
+    ├── pi-gadget/            # submodule: gadget snap source
+    ├── build/                # intermediate artifacts (generated)
+    ├── output/<run-id>/      # images + SHA256SUMS + build-info.txt
+    ├── logs/                 # one log per run (generated)
+    └── .credentials/         # Snap Store token (generated, chmod 600)
 ```
 
-## Fluxo do build
+## Build flow
 
 ```
-setup (1 vez, interativo)          build (repetível, não-interativo)
+setup (once, interactive)          build (repeatable, non-interactive)
 ┌────────────────────────┐         ┌─────────────────────────────────┐
-│ 1. login Ubuntu One    │         │ 1. render assertions            │
-│    (suporta 2FA)       │         │    developer-id ← whoami        │
-│ 2. criar chave GPG     │  ────▶  │ 2. snap sign (model +           │
+│ 1. Ubuntu One login    │         │ 1. render assertions            │
+│    (2FA supported)     │         │    developer-id ← whoami        │
+│ 2. create GPG key      │  ────▶  │ 2. snap sign (model +           │
 │    (RSA 4096, batch)   │         │    system-user --chain)         │
-│ 3. registar chave na   │         │ 3. snapcraft pack (gadget,      │
-│    Canonical           │         │    com cache + netplan)         │
+│ 3. register key with   │         │ 3. snapcraft pack (gadget,      │
+│    Canonical           │         │    with cache + netplan)        │
 └────────────────────────┘         │ 4. ubuntu-image → output/       │
                                    └─────────────────────────────────┘
 ```
 
-## Início rápido
+## Quick start
 
-Pré-requisitos: Docker + Compose, make, conta [Ubuntu One](https://login.ubuntu.com)
-com os termos de developer aceites em [dashboard.snapcraft.io](https://dashboard.snapcraft.io).
+Prerequisites: Docker + Compose, make, an [Ubuntu One](https://login.ubuntu.com)
+account with the developer terms accepted at
+[dashboard.snapcraft.io](https://dashboard.snapcraft.io).
 
 ```bash
-# 1. Clonar (com o submodule do gadget!)
-git clone --recurse-submodules <URL-DA-TUA-CÓPIA-PRIVADA>
-cd <o-teu-builder>
+# 1. Clone (with the gadget submodule!)
+git clone --recurse-submodules <URL-OF-YOUR-PRIVATE-COPY>
+cd <your-builder>
 
-# 2. Configuração
-cp workspace/config/.env.example workspace/.env                        # preencher
+# 2. Configuration
+cp workspace/config/.env.example workspace/.env                        # fill in
 cp workspace/config/ssh-authorized-keys.example workspace/config/ssh-authorized-keys
-#    → cola a tua chave SSH pública (SEM ela não há acesso ao dispositivo!)
+#    → paste your public SSH key (WITHOUT it there is no device access!)
 
-# 3. Ambiente
+# 3. Environment
 make up
 
-# 4. Setup inicial — UMA vez (login Ubuntu One + chave de assinatura)
+# 4. Initial setup — ONCE (Ubuntu One login + signing key)
 make setup
 
 # 5. Build
 make doctor && make image
 ```
 
-A imagem fica em `workspace/output/<data>_<modelo>/` (atalho
-`workspace/output/latest/`) com `SHA256SUMS` e `build-info.txt`.
+The image lands in `workspace/output/<date>_<model>/` (shortcut
+`workspace/output/latest/`) together with `SHA256SUMS` and
+`build-info.txt`.
 
 ```bash
 sudo dd if=workspace/output/latest/pi.img of=/dev/sdX bs=32M status=progress
 ```
 
-## Comandos
+## Commands
 
-| Comando | Descrição |
+| Command | Description |
 |---|---|
-| `make up` / `make down` | Arranca / pára o container |
-| `make setup` | Login na Store + criação e registo da chave (interativo, 1 vez) |
-| `make image` | Build completo, não-interativo |
-| `make gadget` | Build forçando a reconstrução do gadget |
-| `make doctor` | Diagnóstico: dependências, credenciais, chave, templates |
-| `make clean` | Remove artefactos intermédios |
-| `make shell` | Bash dentro do container |
+| `make up` / `make down` | Start / stop the container |
+| `make setup` | Store login + key creation/registration (interactive, once) |
+| `make image` | Full non-interactive build |
+| `make gadget` | Build forcing a gadget rebuild |
+| `make doctor` | Diagnostics: dependencies, credentials, key, templates |
+| `make clean` | Remove intermediate artifacts |
+| `make shell` | Bash inside the container |
 
-## Configuração (`workspace/.env`)
+## Configuration (`workspace/.env`)
 
-| Variável | Descrição | Omissão |
+| Variable | Description | Default |
 |---|---|---|
-| `KEY_NAME` | Nome da chave de assinatura | *(obrigatório)* |
-| `KEY_PASSPHRASE` | Passphrase; vazio = sem passphrase (CI) | vazio |
-| `MODEL_NAME` | Nome do modelo (assertion `model`) | `rpi5-gateway` |
-| `ARCHITECTURE` / `BASE` / `GRADE` | Parâmetros do modelo | `arm64` / `core24` / `dangerous` |
-| `SYSTEM_USER_EMAIL` / `_USERNAME` / `_FULLNAME` | Utilizador criado no 1º arranque | *(obrigatório)* |
-| `SYSTEM_USER_VALID_YEARS` | Validade da asserção system-user | `10` |
-| `COMPRESS_IMAGE` | `true` = comprime a imagem com xz | `false` |
+| `KEY_NAME` | Signing key name | *(required)* |
+| `KEY_PASSPHRASE` | Passphrase; empty = no passphrase (CI) | empty |
+| `MODEL_NAME` | Model name (`model` assertion) | `rpi5-gateway` |
+| `ARCHITECTURE` / `BASE` / `GRADE` | Model parameters | `arm64` / `core24` / `dangerous` |
+| `SYSTEM_USER_EMAIL` / `_USERNAME` / `_FULLNAME` | User created on first boot | *(required)* |
+| `SYSTEM_USER_VALID_YEARS` | Validity of the system-user assertion | `10` |
+| `COMPRESS_IMAGE` | `true` = compress the image with xz | `false` |
 
-Os snaps incluídos na imagem definem-se em
-`workspace/config/model.template.json` (substitui a entrada `XXXXX`
-pelo teu snap de aplicação). Os campos de identidade (`authority-id`,
-`brand-id`, `timestamp`, …) são preenchidos automaticamente pelo
-pipeline a partir de `snapcraft whoami` — **nunca é preciso editá-los
-à mão**.
+The snaps included in the image are defined in
+`workspace/config/model.template.json` (replace the `XXXXX` entry with
+your application snap). The identity fields (`authority-id`,
+`brand-id`, `timestamp`, …) are filled in automatically by the pipeline
+from `snapcraft whoami` — **you never edit them by hand**.
 
-## CI/CD e segurança
+## CI/CD and security
 
-O CI/CD (GitHub Actions → releases com as imagens) **não vem ativado
-neste guia** — porque só faz sentido na tua cópia privada, com os teus
-secrets. O [TUTORIAL.md](TUTORIAL.md) explica passo a passo:
+CI/CD (GitHub Actions → releases carrying the images) is **not enabled
+in this guide** — it only makes sense in your private copy, with your
+own secrets. [TUTORIAL.md](TUTORIAL.md) explains step by step:
 
-- como montar o workflow completo (o YAML está lá pronto a copiar);
-- que secrets criar e como (token da Store, chave GPG, dados pessoais);
-- **os pontos críticos de segurança** — onde vive cada segredo, o que
-  nunca pode entrar no git, backup da chave de assinatura, rotação de
-  credenciais.
+- how to set up the complete workflow (the YAML is there, ready to copy);
+- which secrets to create and how (Store token, GPG key, personal data);
+- **the critical security points** — where each secret lives, what must
+  never enter git, signing-key backup, credential rotation.
 
-## Decisões de segurança do pipeline
+## Security decisions in this pipeline
 
-- **Sem passwords em ficheiros.** O login no Ubuntu One é interativo e
-  feito uma única vez (`make setup`), com suporte a 2FA. Só o token
-  exportado fica guardado (`.credentials/`, chmod 600, gitignored).
-- **Assinatura não-interativa sem expor a chave.** A passphrase é
-  injetada no `gpg-agent` apenas durante a sessão de build; a chave
-  privada nunca sai de `~/.snap/gnupg`.
-- **Developer-id sempre correto.** `authority-id`/`brand-id` vêm de
-  `snapcraft whoami` no momento do build.
-- **Dados pessoais fora do git.** `.env`, `ssh-authorized-keys` e
-  `network.yaml` (Wi-Fi!) são gitignored; os exemplos versionados só
-  têm placeholders.
-- **Rastreabilidade.** Cada imagem sai com `SHA256SUMS` e
-  `build-info.txt`; cada execução gera log em `workspace/logs/`.
+- **No passwords in files.** The Ubuntu One login is interactive and
+  happens once (`make setup`), with 2FA support. Only the exported
+  token is stored (`.credentials/`, chmod 600, gitignored).
+- **Non-interactive signing without exposing the key.** The passphrase
+  is preset into `gpg-agent` only for the build session; the private
+  key never leaves `~/.snap/gnupg`.
+- **Always-correct developer id.** `authority-id`/`brand-id` come from
+  `snapcraft whoami` at build time.
+- **Personal data stays out of git.** `.env`, `ssh-authorized-keys` and
+  `network.yaml` (Wi-Fi!) are gitignored; the versioned examples only
+  contain placeholders.
+- **Traceability.** Every image ships with `SHA256SUMS` and
+  `build-info.txt`; every run is logged under `workspace/logs/`.
 
-## Resolução de problemas
+## Troubleshooting
 
-| Sintoma | Causa provável / solução |
+| Symptom | Likely cause / fix |
 |---|---|
-| `Sem credenciais válidas` | Token expirou → `make setup` de novo |
-| `cannot sign assertion ... key not found` | `KEY_NAME` no `.env` difere da chave criada → `snap keys` |
-| `snap sign` pede passphrase | `KEY_PASSPHRASE` errada, ou gpg-agent reiniciado → repete o build |
-| register-key falha | Termos do developer não aceites em dashboard.snapcraft.io |
-| Wi-Fi não configurado na imagem | `network.yaml` vazio ou com valores de exemplo (o pipeline avisa) |
-| Snapd não arranca no container | `make rebuild`; confirmar cgroups v2 no Docker |
-| Gadget falha com ficheiro em falta | Vê se o teu gadget precisa de binários externos (não versionados) |
+| `Sem credenciais válidas` (no valid credentials) | Token expired → `make setup` again |
+| `cannot sign assertion ... key not found` | `KEY_NAME` in `.env` differs from the created key → `snap keys` |
+| `snap sign` asks for a passphrase | Wrong `KEY_PASSPHRASE`, or gpg-agent restarted → rerun the build |
+| register-key fails | Developer terms not accepted at dashboard.snapcraft.io |
+| Wi-Fi not configured in the image | `network.yaml` empty or holding example values (the pipeline warns) |
+| snapd does not start in the container | `make rebuild`; check Docker runs with cgroups v2 |
+| Gadget fails on a missing file | Check whether your gadget needs external (unversioned) binaries |
