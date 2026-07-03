@@ -66,3 +66,4 @@ workspace/logs/
 workspace/*.img
 workspace/*.img.xz
 workspace/seed.manifest
+workspace/config/ssh-authorized-keys

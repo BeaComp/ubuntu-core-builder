@@ -1,262 +1,369 @@
 # Tutorial — do clone à imagem publicada 🚀
 
-Guia completo para usar este pipeline num computador novo: clonar o
-repositório, configurar o ambiente, gerar imagens Ubuntu Core localmente
-e publicar versões via CI/CD. No fim, a lista de **pontos críticos de
-segurança** que tens de conhecer.
+Guia completo: clonar, configurar, gerar imagens Ubuntu Core localmente
+e (opcional) montar CI/CD com GitHub Actions para publicar cada versão
+como GitHub Release. No fim, os **pontos críticos de segurança**.
+
+> ⚠️ Trabalha sempre numa **cópia privada** deste repositório — a tua
+> versão vai conter dados pessoais e secrets (ver aviso no README).
 
 ---
 
-## Parte 1 — Preparar a máquina nova
+## Parte 1 — Build local
 
 ### 1.1 Pré-requisitos
 
 | Ferramenta | Para quê | Instalação (Ubuntu) |
 |---|---|---|
 | git | clonar o repositório | `sudo apt install git` |
-| Docker + Compose | ambiente de build isolado | [docs.docker.com/engine/install](https://docs.docker.com/engine/install/ubuntu/) |
+| Docker + Compose | ambiente de build isolado | [docs.docker.com](https://docs.docker.com/engine/install/ubuntu/) |
 | make | comandos de conveniência | `sudo apt install make` |
 | GitHub CLI (`gh`) | secrets do CI e releases | [cli.github.com](https://cli.github.com) |
 
-Depois de instalar o Docker, adiciona o teu utilizador ao grupo
-(`sudo usermod -aG docker $USER` + logout/login) e autentica o `gh`:
-
-```bash
-gh auth login
-```
-
-Também vais precisar da tua conta **Ubuntu One** (a mesma de sempre) e,
-se fores restaurar a chave de assinatura existente, do ficheiro de
-backup `mestrado-iot-signing-key.asc` (ver secção 1.4).
+E uma conta **Ubuntu One** com os termos de developer aceites em
+[dashboard.snapcraft.io](https://dashboard.snapcraft.io).
 
 ### 1.2 Clonar (com o submodule!)
 
-O `pi-gadget` é um submodule — um clone simples vem com a pasta vazia:
+O gadget é um submodule — um clone simples vem com a pasta vazia:
 
 ```bash
-git clone --recurse-submodules https://github.com/BeaComp/ubuntu-core-builder.git
-cd ubuntu-core-builder
+git clone --recurse-submodules <URL-DA-TUA-CÓPIA-PRIVADA>
+cd <o-teu-builder>
+# já clonaste sem --recurse-submodules? → git submodule update --init
 ```
 
-Se já clonaste sem `--recurse-submodules`:
+Se o teu gadget precisar de binários externos não versionados (ex.: um
+agente de gestão remota), coloca-os agora no sítio esperado pelo
+`snapcraft.yaml` do gadget — vê a secção 2.4 para uma forma limpa de os
+distribuir.
 
-```bash
-git submodule update --init
-```
-
-### 1.3 Obter o binário do meshagent
-
-O binário do agente MeshCentral **não está no git** (decisão deliberada).
-Vive como asset do release `meshagent-bin` no repositório `pi-gadget`:
-
-```bash
-gh release download meshagent-bin \
-  --repo BeaComp/pi-gadget \
-  --pattern meshagent \
-  --output workspace/pi-gadget/gadget-source/meshagent-bin/meshagent
-chmod +x workspace/pi-gadget/gadget-source/meshagent-bin/meshagent
-```
-
-Sem este passo, o build do gadget falha com
-`meshagent-bin: No such file or directory`.
-
-### 1.4 Configurar
+### 1.3 Configurar
 
 ```bash
 cp workspace/config/.env.example workspace/.env
-nano workspace/.env        # confirma KEY_NAME, dados do system-user
+nano workspace/.env    # KEY_NAME, dados do system-user, etc.
+
+cp workspace/config/ssh-authorized-keys.example workspace/config/ssh-authorized-keys
+nano workspace/config/ssh-authorized-keys   # cola a tua chave PÚBLICA
 ```
 
-Confirma também que a tua chave SSH pública está em
-`workspace/config/ssh-authorized-keys` — sem uma chave válida aí,
-**não há forma de entrar no dispositivo** (o Ubuntu Core não tem login
-por password). Se a máquina nova tiver outra chave SSH, acrescenta-a
-(uma por linha).
+⚠️ O Ubuntu Core **não tem login por password** — sem uma chave SSH
+válida em `ssh-authorized-keys`, não há forma de aceder ao dispositivo.
 
-(Opcional) Wi-Fi pré-configurado na imagem: preenche
-`workspace/network.yaml` com netplan (`network:` no topo). **Nunca**
-faças commit deste ficheiro com senhas — só builds locais devem ter Wi-Fi.
+(Opcional) Wi-Fi pré-configurado: preenche `workspace/network.yaml`
+com netplan (`network:` no topo). Este ficheiro está no `.gitignore` —
+**nunca** o removas de lá: contém a senha da tua rede.
 
-### 1.5 Arrancar o ambiente e autenticar
+### 1.4 Arrancar e autenticar
 
 ```bash
-make up        # constrói e arranca o container (1ª vez demora)
+make up      # constrói e arranca o container (1ª vez demora)
+make setup   # interativo, 1 vez: login Ubuntu One (2FA ok) +
+             # criação e registo da chave de assinatura
 ```
 
-**Se tens o backup da chave de assinatura** (o caso normal — a chave
-`mestrado-iot` já está registada na Canonical), restaura-a ANTES do setup:
+A password nunca fica guardada — só um token revogável
+(`workspace/.credentials/`, chmod 600, gitignored).
+
+**Máquina nova com chave já existente?** Não podes registar outra chave
+com o mesmo nome. Restaura o backup ANTES do `make setup`:
 
 ```bash
 docker exec -i ubuntu-core-builder sh -c \
   'mkdir -p /root/.snap/gnupg && chmod 700 /root/.snap/gnupg && \
-   gpg --homedir /root/.snap/gnupg --import' < mestrado-iot-signing-key.asc
+   gpg --homedir /root/.snap/gnupg --import' < a-tua-chave-backup.asc
 ```
 
-Depois, o setup (interativo, uma vez por máquina — pede email, password
-e 2FA do Ubuntu One; a password nunca fica guardada):
-
-```bash
-make setup
-```
-
-O setup deteta a chave restaurada e o registo na Canonical, e só faz o
-login na Store (o token é por máquina).
-
-**Se NÃO tens o backup da chave**: não podes registar outra chave com o
-mesmo nome. Escolhe um `KEY_NAME` novo no `.env` antes do `make setup`
-(que cria e regista a chave nova) e depois atualiza o CI com
-`make ci-secrets`. As imagens antigas continuam válidas.
-
-### 1.6 Verificar e construir
+### 1.5 Construir
 
 ```bash
 make doctor    # diagnóstico: tudo ✔?
 make image     # build completo, não-interativo
 ```
 
-A imagem fica em `workspace/output/latest/` com `SHA256SUMS` e
-`build-info.txt`. Gravar no cartão SD:
+Resultado em `workspace/output/latest/`:
 
 ```bash
 sudo dd if=workspace/output/latest/pi.img of=/dev/sdX bs=32M status=progress
-# (confirma o /dev/sdX com "lsblk" antes — o dd não perdoa!)
+# confirma o /dev/sdX com "lsblk" — o dd não perdoa!
 ```
 
 ---
 
-## Parte 2 — CI/CD e releases
+## Parte 2 — Montar o CI/CD (GitHub Actions)
 
-O CI **não precisa de configuração na máquina nova** — os secrets vivem
-no GitHub, independentes do computador. Só voltas a correr
-`make ci-secrets` se rodares o token ou a chave.
+O objetivo: `git tag v1.0.0 && git push origin v1.0.0` → o GitHub
+constrói a imagem e publica-a como **Release** com checksums e
+proveniência. Só faz sentido num repositório **privado** (os secrets
+dão acesso à tua conta de developer, e as imagens ficam acessíveis a
+quem vê o repositório).
 
-### Publicar uma versão
+### 2.1 Criar os secrets
+
+| Secret | Conteúdo | Como obter |
+|---|---|---|
+| `SNAPCRAFT_STORE_CREDENTIALS` | token da Snap Store | `docker exec ubuntu-core-builder cat /workspace/.credentials/snapcraft-store.txt` |
+| `SNAP_SIGNING_KEY` | chave GPG privada (armored) | `docker exec ubuntu-core-builder gpg --homedir /root/.snap/gnupg --export-secret-keys --armor <KEY_NAME>` |
+| `KEY_NAME` | nome da chave | o teu `.env` |
+| `SYSTEM_USER_EMAIL` | email Ubuntu One | o teu `.env` |
+| `SYSTEM_USER_USERNAME` | username do system-user | o teu `.env` |
+| `SYSTEM_USER_FULLNAME` | nome completo | o teu `.env` |
+| `SSH_AUTHORIZED_KEYS` | chaves SSH públicas (uma por linha) | `config/ssh-authorized-keys` |
+| `KEY_PASSPHRASE` | (opcional) passphrase da chave | o teu `.env` |
+
+Com o `gh` autenticado, dentro do teu repositório:
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+gh secret set NOME_DO_SECRET   # cola o valor, ou usa --body / stdin
 ```
 
-≈5 minutos depois:
-`https://github.com/BeaComp/ubuntu-core-builder/releases/tag/v0.2.0`
-com `pi.img.xz`, `SHA256SUMS`, `build-info.txt` e `seed.manifest`.
+Assim **nenhum dado pessoal fica no git** — nem sequer no privado: o
+workflow constrói o `.env` a partir dos secrets em tempo de execução.
 
-Num computador novo, verifica a integridade do que descarregares:
+### 2.2 O workflow
+
+Cria `.github/workflows/build-image.yml` com o conteúdo abaixo
+(substitui `<TEU-USER>/<TEU-GADGET>` se usares o passo do binário
+externo; caso contrário remove esse passo):
+
+```yaml
+name: build-image
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout (inclui o gadget)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Instalar ferramentas
+        run: |
+          sudo snap install snapcraft --classic
+          sudo snap install ubuntu-image --classic
+          sudo snap install lxd
+          sudo lxd init --auto
+          # O Docker pré-instalado no runner põe FORWARD em DROP,
+          # o que corta a rede aos containers LXD do snapcraft
+          sudo iptables -I DOCKER-USER -i lxdbr0 -j ACCEPT || true
+          sudo iptables -I DOCKER-USER -o lxdbr0 -j ACCEPT || true
+          sudo curl -fsSL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 \
+            -o /usr/local/bin/yq
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Configurar autenticação (Store + chave de assinatura)
+        env:
+          STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+          SIGNING_KEY: ${{ secrets.SNAP_SIGNING_KEY }}
+        run: |
+          test -n "$STORE_CREDENTIALS" || { echo "::error::Secret SNAPCRAFT_STORE_CREDENTIALS em falta"; exit 1; }
+          test -n "$SIGNING_KEY"       || { echo "::error::Secret SNAP_SIGNING_KEY em falta"; exit 1; }
+          install -d -m 700 workspace/.credentials
+          printf '%s' "$STORE_CREDENTIALS" > workspace/.credentials/snapcraft-store.txt
+          chmod 600 workspace/.credentials/snapcraft-store.txt
+          # O pipeline corre como root → keyring do snap em /root/.snap/gnupg
+          sudo install -d -m 700 /root/.snap/gnupg
+          printf '%s' "$SIGNING_KEY" | sudo env GNUPGHOME=/root/.snap/gnupg gpg --batch --import
+
+      - name: (Opcional) Obter binários externos do gadget
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Exemplo: binário distribuído como asset de um release dedicado
+          gh release download <TAG-DO-RELEASE> \
+            --repo <TEU-USER>/<TEU-GADGET> \
+            --pattern <binario> \
+            --output workspace/pi-gadget/<caminho-esperado>/<binario>
+          chmod +x workspace/pi-gadget/<caminho-esperado>/<binario>
+
+      - name: Preparar .env e chaves SSH (a partir de secrets)
+        env:
+          KEY_NAME: ${{ secrets.KEY_NAME }}
+          KEY_PASSPHRASE: ${{ secrets.KEY_PASSPHRASE }}
+          SYSTEM_USER_EMAIL: ${{ secrets.SYSTEM_USER_EMAIL }}
+          SYSTEM_USER_USERNAME: ${{ secrets.SYSTEM_USER_USERNAME }}
+          SYSTEM_USER_FULLNAME: ${{ secrets.SYSTEM_USER_FULLNAME }}
+          SSH_AUTHORIZED_KEYS: ${{ secrets.SSH_AUTHORIZED_KEYS }}
+        run: |
+          for v in KEY_NAME SYSTEM_USER_EMAIL SYSTEM_USER_USERNAME SSH_AUTHORIZED_KEYS; do
+            test -n "${!v}" || { echo "::error::Secret $v em falta"; exit 1; }
+          done
+          {
+            echo "KEY_NAME=$KEY_NAME"
+            echo "KEY_PASSPHRASE=$KEY_PASSPHRASE"
+            echo "MODEL_NAME=rpi5-gateway"
+            echo "ARCHITECTURE=arm64"
+            echo "BASE=core24"
+            echo "GRADE=dangerous"
+            echo "SYSTEM_USER_EMAIL=$SYSTEM_USER_EMAIL"
+            echo "SYSTEM_USER_USERNAME=$SYSTEM_USER_USERNAME"
+            echo "SYSTEM_USER_FULLNAME=\"${SYSTEM_USER_FULLNAME:-$SYSTEM_USER_USERNAME}\""
+            echo "SYSTEM_USER_VALID_YEARS=10"
+            # Assets de um Release têm limite de 2 GB → compressão obrigatória
+            echo "COMPRESS_IMAGE=true"
+          } > workspace/.env
+          printf '%s\n' "$SSH_AUTHORIZED_KEYS" > workspace/config/ssh-authorized-keys
+
+      - name: Build da imagem
+        run: |
+          # HOME=/root: sob sudo, o snapd resolveria o keyring pelo
+          # utilizador real (runner); forçamos o mesmo dir do import
+          sudo -E env "PATH=$PATH" HOME=/root \
+            WORKSPACE="$GITHUB_WORKSPACE/workspace" \
+            ./workspace/pipeline.sh build
+          OUT=$(readlink -f workspace/output/latest)
+          sudo chmod -R a+r "$OUT"
+          echo "OUT=$OUT" >> "$GITHUB_ENV"
+
+      - name: Publicar GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '```'
+            cat "$OUT/build-info.txt"
+            echo '```'
+          } > /tmp/release-notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Ubuntu Core $GITHUB_REF_NAME" \
+            --notes-file /tmp/release-notes.md \
+            "$OUT"/pi.img.xz "$OUT"/SHA256SUMS "$OUT"/build-info.txt "$OUT"/seed.manifest
+
+      - name: Guardar artefacto (execução manual)
+        if: "!startsWith(github.ref, 'refs/tags/')"
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-core-image
+          path: ${{ env.OUT }}
+          retention-days: 7
+```
+
+### 2.3 Publicar uma versão
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+# ≈5 min depois: .../releases/tag/v1.0.0 com pi.img.xz + SHA256SUMS
+```
+
+Para um build de teste sem release: Actions → build-image →
+**Run workflow** (o resultado fica como artefacto, 7 dias).
+
+Verificar integridade do que descarregares:
 
 ```bash
 sha256sum -c SHA256SUMS
 xz -dc pi.img.xz | sudo dd of=/dev/sdX bs=32M status=progress
 ```
 
-### Build de teste sem release
+### 2.4 Binários externos do gadget
 
-GitHub → Actions → *build-image* → **Run workflow**. O resultado fica
-como artefacto de workflow (7 dias), sem criar release.
+Se o teu gadget precisa de binários que não devem ir para o git
+(agentes, firmware, blobs), o padrão limpo é publicá-los **uma vez**
+como asset de um release dedicado do repositório do gadget:
 
-### Alterar o gadget (pi-gadget é submodule!)
+```bash
+gh release create meu-binario --latest=false --title "..." caminho/binario
+```
+
+…e descarregá-los no CI com `gh release download` (passo opcional do
+workflow acima). Atenção: num repositório público, os assets são
+públicos — binários que contenham identificadores/credenciais do teu
+ambiente devem viver em repositório privado.
+
+### 2.5 O gadget é um submodule
+
+O CI usa **o commit do gadget apontado pelo repositório principal**,
+não o teu working tree:
 
 ```bash
 cd workspace/pi-gadget
-# ... editas, commit ...
-git push origin 24
+# ... commit + push no repo do gadget ...
 cd ../..
-git add workspace/pi-gadget    # atualiza o commit apontado
-git commit -m "bump pi-gadget" && git push
-```
-
-O CI usa **o commit apontado pelo repositório principal**, não o teu
-working tree — se te esqueceres do `git add workspace/pi-gadget`, o CI
-constrói a versão antiga.
-
-### Atualizar o binário do meshagent
-
-```bash
-gh release upload meshagent-bin novo-meshagent --clobber --repo BeaComp/pi-gadget
+git add workspace/pi-gadget && git commit -m "bump gadget" && git push
 ```
 
 ---
 
 ## Parte 3 — Pontos críticos de segurança ⚠️
 
-### P1. A chave de assinatura só existe em dois sítios — e um deles é write-only
+### P1. A chave de assinatura: backup obrigatório
 
-A chave GPG privada (que assina `model` e `system-user`) vive em
-`/root/.snap/gnupg` **dentro do container** e no secret `SNAP_SIGNING_KEY`
-do GitHub. O secret **não pode ser lido de volta**, e o container é
-efémero: `docker compose down` ou `make rebuild` **destroem a única
-cópia legível**. Mantém sempre um backup fora de qualquer repositório git:
+A chave GPG privada (assina `model` e `system-user`) vive em
+`/root/.snap/gnupg` **dentro do container** — que é efémero:
+`docker compose down` ou `make rebuild` **destroem-na**. O secret no
+GitHub não pode ser lido de volta (write-only). Faz backup já:
 
 ```bash
 docker exec ubuntu-core-builder gpg --homedir /root/.snap/gnupg \
-  --export-secret-keys --armor mestrado-iot > mestrado-iot-signing-key.asc
-chmod 600 mestrado-iot-signing-key.asc
+  --export-secret-keys --armor <KEY_NAME> > chave-backup.asc
+chmod 600 chave-backup.asc    # guarda FORA de qualquer repositório git
 ```
 
-Quem tiver esta chave consegue assinar imagens e system-users **válidos
-em teu nome** — dispositivos com o teu model aceitá-los-iam. Se for
-comprometida: remove-a em [dashboard.snapcraft.io](https://dashboard.snapcraft.io)
-e roda para uma chave nova (`KEY_NAME` novo + `make setup` + `make ci-secrets`).
+Quem tiver esta chave assina imagens e system-users **válidos em teu
+nome**. Comprometida? Remove-a em dashboard.snapcraft.io e roda
+(`KEY_NAME` novo + `make setup` + refazer secrets).
 
-### P2. O token da Snap Store é uma credencial da tua conta de developer
+### P2. O token da Store é a tua conta de developer
 
-Vive em `workspace/.credentials/snapcraft-store.txt` (chmod 600, no
-`.gitignore`) e no secret `SNAPCRAFT_STORE_CREDENTIALS`. Dá acesso à tua
-conta de publisher (registar chaves, publicar snaps). Expira ≈1 ano —
-quando o CI falhar com "credenciais inválidas": `make setup` +
-`make ci-secrets`. Se suspeitares de fuga, revoga as sessões em
-[login.ubuntu.com](https://login.ubuntu.com).
+Dá acesso à conta de publisher (registar chaves, publicar snaps).
+Expira ≈1 ano → `make setup` + refazer o secret. Fuga suspeita →
+revogar sessões em login.ubuntu.com. A **password do Ubuntu One nunca
+é armazenada** — o login é interativo, com 2FA.
 
-A **password do Ubuntu One nunca é armazenada** em lado nenhum — o login
-é interativo (com 2FA) e só o token derivado é guardado.
+### P3. Repositório privado, sempre
 
-### P3. Os repositórios são PÚBLICOS — sabe o que se vê
+Com o repositório privado: secrets, imagens (releases/artefactos) e
+histórico só são visíveis para quem tu autorizares. Os GitHub Secrets
+são cifrados, mascarados nos logs e não são entregues a workflows de
+forks — mas os **assets e o código de um repo público são de todos**.
+Lembra-te: o que entrou no git uma vez fica no **histórico** mesmo
+depois de apagado — segredo commitado é segredo comprometido (roda-o).
 
-Visível para qualquer pessoa: todo o código, o teu email/username do
-Ubuntu One, a tua chave SSH **pública** (inofensiva sem a privada), o
-developer-id, o binário do meshagent, e as **imagens completas** nos
-releases. Invisível: os secrets (cifrados e mascarados nos logs; não são
-entregues a workflows de forks) e a senha do Wi-Fi (o `network.yaml`
-versionado está vazio de propósito).
+### P4. Dados pessoais só em secrets e ficheiros gitignored
 
-### P4. O `meshagent.msh` público é uma credencial de enrollment
-
-O ficheiro versionado no `pi-gadget` contém `MeshID`, `ServerID` e o URL
-do teu servidor MeshCentral. Quem o conhecer pode **juntar um dispositivo
-falso ao teu mesh** e sabe onde está o teu servidor. Mitigações: usar um
-device group descartável para testes (o nome `QUARANTINE` é boa prática),
-ativar aprovação manual/invite codes no MeshCentral, e vigiar dispositivos
-desconhecidos no grupo. Alternativa mais forte: tirar o `.msh` do git e
-distribuí-lo como asset de release, como o binário.
+Neste pipeline, `.env`, `ssh-authorized-keys` e `network.yaml` são
+gitignored, e o CI recebe tudo via secrets. Antes de cada commit:
+`git status` — se aparecer um destes ficheiros, algo está errado.
 
 ### P5. `grade: dangerous` é para desenvolvimento
 
-O model atual usa `grade: dangerous`, que aceita snaps não-asserted e é
-adequado à fase de desenvolvimento. Para dispositivos "de produção" da
-dissertação, muda para `grade: signed` no `.env` (`GRADE=signed`) — a
-imagem passa a exigir que tudo esteja assinado.
+Aceita snaps não-asserted. Para dispositivos de produção usa
+`GRADE=signed` — a imagem passa a exigir tudo assinado.
 
 ### P6. Acesso ao dispositivo = chave SSH privada
 
-O Ubuntu Core não tem login por password. O acesso é exclusivamente por
-SSH com as chaves públicas embebidas no system-user (mais as da conta
-Ubuntu One, via console-conf). Protege as chaves privadas correspondentes
-(`~/.ssh/id_*`) — quem as tiver entra nos dispositivos. Em máquina nova,
-gera um par novo (`ssh-keygen -t ed25519`) e acrescenta a pública ao
-`ssh-authorized-keys` em vez de copiares a privada entre máquinas.
+O Ubuntu Core só aceita SSH por chave (as públicas do system-user +
+as da conta Ubuntu One). Protege as privadas (`~/.ssh/id_*`); em
+máquina nova, gera um par novo e acrescenta a pública — não copies a
+privada entre máquinas.
 
-### P7. Senhas de Wi-Fi nunca entram no git nem no CI
+### P7. Identificadores de agentes/gestão remota são credenciais
 
-O pipeline injeta o `network.yaml` no gadget apenas em builds locais e
-reverte o `gadget.yaml` no fim (mesmo com erro). O CI constrói sempre sem
-Wi-Fi (Ethernet/console-conf no primeiro arranque). Se um dia precisares
-de Wi-Fi em imagens do CI, o caminho certo é um secret — nunca um commit.
+Ficheiros de configuração de agentes (ex.: MeshCentral `.msh` com
+`MeshID`/`ServerID`/URL do servidor) funcionam como **credenciais de
+enrollment**: quem os tiver pode registar dispositivos falsos no teu
+servidor. Nunca os publiques; distribui-os por secret ou repositório
+privado, e monitoriza dispositivos desconhecidos.
 
 ### Resumo — onde vive cada segredo
 
 | Segredo | Local | GitHub | Risco se vazar |
 |---|---|---|---|
-| Chave GPG privada | container `/root/.snap/gnupg` + backup teu | secret (write-only) | assinar imagens em teu nome |
-| Token Snap Store | `.credentials/` (600, gitignored) | secret (write-only) | controlo da conta de publisher |
+| Chave GPG privada | container + backup teu | secret (write-only) | assinar imagens em teu nome |
+| Token Snap Store | `.credentials/` (600, gitignored) | secret | controlo da conta de publisher |
 | Password Ubuntu One | **nunca armazenada** | — | (protegida por 2FA) |
-| Senha Wi-Fi | só `network.yaml` local (não commitado) | — | acesso à tua rede |
+| Dados pessoais (email, SSH pub, …) | `.env` local (gitignored) | secrets | doxxing / spam |
+| Senha Wi-Fi | `network.yaml` local (gitignored) | — | acesso à tua rede |
 | Chave SSH privada | `~/.ssh/` da tua máquina | — | acesso aos dispositivos |

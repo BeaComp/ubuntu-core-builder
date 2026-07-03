@@ -5,4 +5,4 @@
 # ATENÇÃO: o Ubuntu Core não tem login por password — sem uma
 # chave SSH válida aqui, não há forma de aceder ao dispositivo.
 #
-# ssh-ed25519 AAAA... beatriz@vm-ubuntu
+# ssh-ed25519 AAAA... utilizador@maquina

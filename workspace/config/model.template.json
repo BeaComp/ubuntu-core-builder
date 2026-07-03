@@ -40,9 +40,9 @@
             "presence": "optional"
         },
         {
-            "name": "meshagent-ubuntu-core",
+            "name": "XXXXX-o-teu-snap-de-aplicacao",
             "type": "app",
-            "default-channel": "latest/edge",
+            "default-channel": "latest/stable",
             "id": "XXXXX"
         }
     ]
