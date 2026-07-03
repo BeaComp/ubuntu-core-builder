@@ -23,9 +23,13 @@ SSH_KEYS_FILE="$CONFIG_DIR/ssh-authorized-keys"
 MODEL_TEMPLATE="$CONFIG_DIR/model.template.json"
 SYSTEM_USER_TEMPLATE="$CONFIG_DIR/system-user.template.json"
 
-# GNUPGHOME aponta para o keyring que o snapd usa para "snap sign"
+# GNUPGHOME aponta para o keyring que o snapd usa para "snap sign".
+# SNAP_GNUPG_HOME é obrigatório: o snapd ignora GNUPGHOME/HOME e, sob
+# sudo, resolve o keyring pelo utilizador real (SUDO_USER) — sem isto,
+# "snap keys"/"snap sign" e o gpg usariam keyrings diferentes em CI.
 export PATH="$PATH:/snap/bin"
 export GNUPGHOME="${GNUPGHOME:-$HOME/.snap/gnupg}"
+export SNAP_GNUPG_HOME="$GNUPGHOME"
 
 # ── Logging ────────────────────────────────────────────────────────
 if [ -t 1 ]; then

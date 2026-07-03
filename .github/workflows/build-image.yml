@@ -69,7 +69,10 @@ jobs:
 
       - name: Build da imagem
         run: |
-          sudo -E env "PATH=$PATH" WORKSPACE="$GITHUB_WORKSPACE/workspace" \
+          # HOME=/root: sob sudo, o snapd resolveria o keyring pelo
+          # utilizador real (runner); forçamos o mesmo dir do import
+          sudo -E env "PATH=$PATH" HOME=/root \
+            WORKSPACE="$GITHUB_WORKSPACE/workspace" \
             ./workspace/pipeline.sh build
           OUT=$(readlink -f workspace/output/latest)
           sudo chmod -R a+r "$OUT"
