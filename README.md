@@ -9,6 +9,10 @@ assertions (`model` e `system-user`), build do gadget e geração da imagem —
 é orquestrado por um único script com subcomandos, dentro de um container
 Docker reprodutível.
 
+> 📖 **Novo por aqui ou a montar noutra máquina?** Segue o
+> [TUTORIAL.md](TUTORIAL.md) — passo-a-passo do clone à imagem publicada,
+> incluindo os pontos críticos de segurança.
+
 ## Arquitetura
 
 ```
